@@ -13,8 +13,10 @@
 ## Checklist
 
 - [ ] `bun run check` passes
+- [ ] `bun run test` passes
 - [ ] Isolation still holds (`namespace:profile` never crosses)
-- [ ] `ingest` stays idempotent if messages were touched
+- [ ] Message writes stay idempotent if messages were touched
 - [ ] Luna still uses `reasoning.effort: "none"`
+- [ ] Durable Objects still do not call OpenRouter
 - [ ] `.dev.vars` and secrets are not in the diff
 - [ ] `bun run types` rerun if `wrangler.jsonc` changed

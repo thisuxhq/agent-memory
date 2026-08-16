@@ -12,6 +12,7 @@ bun add <pkg>
 bun add -d <pkg>
 bun run dev
 bun run check
+bun run test
 bunx wrangler types
 bunx wrangler deploy
 ```
@@ -21,22 +22,32 @@ Lockfile is `bun.lock`. Do not create `package-lock.json` or `yarn.lock`.
 ## Architecture
 
 ```
-Hono Worker  ──RPC──►  MemoryProfile DO (SQLite + FTS5)
-                          extract / classify / recall via OpenRouter Luna
+Hono Worker  ──auth──►  Luna (OpenRouter)
+     │                      │
+     ├──RPC──► MemoryProfile DO (SQLite + FTS5 only)
+     │
+     └──queue──► extract consumer (Luna, then storeMemories)
 ```
 
 - Isolation: `namespace:profile` → one Durable Object. Alice never sees Bob.
 - Source of truth: SQLite. Vectorize is not wired (Slice 3).
+- DO does not call OpenRouter. Worker + queue consumer do.
 - LLM: `openai/gpt-5.6-luna`, `reasoning.effort: "none"`. Always.
-- Ingest after idle / compaction. Never after every turn.
+- Prefer `POST .../queue` for chat traffic. Use `POST .../ingest` only for an explicit flush.
+
+## Auth
+
+All `/namespaces/*` routes require `Authorization: Bearer $MEMORY_API_TOKEN`.
+`/health` is public.
 
 ## Commands
 
 ```bash
 bun install
-cp .dev.vars.example .dev.vars   # set OPENROUTER_API_KEY
+cp .dev.vars.example .dev.vars   # OPENROUTER_API_KEY + MEMORY_API_TOKEN
 bunx wrangler types
 bun run check
+bun run test
 bun run dev
 ```
 
@@ -44,6 +55,7 @@ bun run dev
 
 ```
 GET    /health
+POST   /namespaces/:ns/profiles/:profile/queue
 POST   /namespaces/:ns/profiles/:profile/ingest
 POST   /namespaces/:ns/profiles/:profile/remember
 POST   /namespaces/:ns/profiles/:profile/recall
@@ -55,24 +67,26 @@ DELETE /namespaces/:ns/profiles/:profile/sessions/:sessionId
 DELETE /namespaces/:ns/profiles/:profile
 ```
 
-`ingest` is content-addressed. Same session + role + content does not duplicate.
+Messages are content-addressed. Same session + role + content does not duplicate.
 
 ## Files
 
 | Path | Role |
 |---|---|
-| `src/index.ts` | Hono HTTP API |
-| `src/profile.ts` | Durable Object: SQL, supersession, search |
+| `src/index.ts` | Hono HTTP + queue consumer |
+| `src/service.ts` | Orchestration (Luna + DO) |
+| `src/profile.ts` | Durable Object: SQL only |
 | `src/luna.ts` | OpenRouter client |
+| `src/auth.ts` | Bearer token check |
 | `src/ids.ts` | Content hashes, topic keys |
 | `src/validate.ts` | Request limits |
-| `src/types.ts` | Shared types |
-| `wrangler.jsonc` | Worker + DO bindings |
+| `test/` | Vitest pool-workers tests |
 
 ## Do not
 
 - Call Luna with reasoning left on
-- Ingest every agent turn
+- Call OpenRouter from the Durable Object
+- Ingest every agent turn (use `/queue`)
 - Share one DO across profiles
-- Hand-write `Env` for bindings — run `bunx wrangler types`. Secrets go in `src/env.d.ts`
+- Hand-write binding `Env` — run `bunx wrangler types`. Secrets stay in `src/env.d.ts`
 - Add Vectorize until Slice 3

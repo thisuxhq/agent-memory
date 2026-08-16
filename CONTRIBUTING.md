@@ -19,9 +19,10 @@ Read [AGENTS.md](AGENTS.md) before changing architecture.
 ```bash
 bun install
 cp .dev.vars.example .dev.vars
-# set OPENROUTER_API_KEY
+# set OPENROUTER_API_KEY and MEMORY_API_TOKEN
 bun run types
 bun run check
+bun run test
 bun run dev
 ```
 
@@ -33,9 +34,10 @@ Do not commit `.dev.vars`. Do not add `package-lock.json`, `yarn.lock`, or `pnpm
 2. Keep isolation: Alice's profile must never see Bob.
 3. `ingest` stays content-addressed and idempotent.
 4. Luna calls must keep `reasoning.effort: "none"`.
-5. Do not ingest after every agent turn. Batch after idle / compaction.
-6. Run `bun run check` before opening a PR.
-7. After `wrangler.jsonc` changes, run `bun run types`. Secrets stay in `src/env.d.ts`.
+5. Durable Objects must not call OpenRouter. Keep LLM work in the Worker / queue consumer.
+6. Prefer `POST .../queue` for chat traffic. Use `POST .../ingest` only for an explicit flush.
+7. Run `bun run check` and `bun run test` before opening a PR.
+8. After `wrangler.jsonc` changes, run `bun run types`. Secrets stay in `src/env.d.ts`.
 
 ## Pull requests
 

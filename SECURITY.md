@@ -28,4 +28,5 @@ Never commit `.dev.vars`, OpenRouter keys, or Cloudflare API tokens. Use Wrangle
 
 ```bash
 bunx wrangler secret put OPENROUTER_API_KEY
+bunx wrangler secret put MEMORY_API_TOKEN
 ```

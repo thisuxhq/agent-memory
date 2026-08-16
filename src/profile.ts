@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { analyzeQuery, classifyMemory, extractMemories, synthesizeAnswer } from "./luna";
 import {
   decodeCursor,
   deriveSessionId,
@@ -7,14 +6,12 @@ import {
   messageId,
   sha256Hex,
 } from "./ids";
-import { HttpError } from "./validate";
 import type {
   AgentMemoryMessage,
   ExtractedMemory,
   MemoryListEntry,
   MemoryType,
-  RecallResult,
-  ScoredCandidate,
+  QueryAnalysis,
   SearchHit,
   StoredMemory,
 } from "./types";
@@ -36,9 +33,23 @@ type MemoryRow = {
 type MessageRow = {
   id: string;
   session_id: string | null;
-  role: string;
+  role: AgentMemoryMessage["role"];
   content: string;
   created_at: number;
+  extracted: number;
+};
+
+export type WriteResult = {
+  sessionId: string;
+  ingested: number;
+  sourceIds: string[];
+  pending: AgentMemoryMessage[];
+};
+
+export type PendingBatch = {
+  sessionId: string;
+  messages: AgentMemoryMessage[];
+  sourceIds: string[];
 };
 
 const CHANNEL_WEIGHT: Record<SearchHit["channel"], number> = {
@@ -103,23 +114,31 @@ export class MemoryProfile extends DurableObject<Env> {
         INSERT INTO _sql_schema_migrations (id) VALUES (1);
       `);
     }
+
+    if (current < 2) {
+      sql.exec(`
+        ALTER TABLE messages ADD COLUMN extracted INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS idx_messages_extracted ON messages(extracted);
+        INSERT INTO _sql_schema_migrations (id) VALUES (2);
+      `);
+    }
   }
 
-  async ingest(
+  async writeMessages(
     messages: AgentMemoryMessage[],
     options: { sessionId?: string | null } = {},
-  ): Promise<{ ingested: number; extracted: number }> {
+  ): Promise<WriteResult> {
     const sessionId = options.sessionId ?? (await deriveSessionId(messages));
     const now = Date.now();
     const sourceIds: string[] = [];
-    let inserted = 0;
+    const pending: AgentMemoryMessage[] = [];
 
     for (const message of messages) {
       const id = await messageId(sessionId, message.role, message.content);
       sourceIds.push(id);
       const createdAt = message.timestamp ? Date.parse(message.timestamp) || now : now;
       const result = this.ctx.storage.sql.exec(
-        "INSERT OR IGNORE INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO messages (id, session_id, role, content, created_at, extracted) VALUES (?, ?, ?, ?, ?, 0)",
         id,
         sessionId,
         message.role,
@@ -132,58 +151,162 @@ export class MemoryProfile extends DurableObject<Env> {
           id,
           message.content,
         );
-        inserted += 1;
+        pending.push(message);
       }
     }
 
-    if (inserted === 0) return { ingested: 0, extracted: 0 };
+    return { sessionId, ingested: pending.length, sourceIds, pending };
+  }
 
-    const extracted = await extractMemories(this.env, messages, sessionId, sourceIds);
-    for (const item of extracted) {
-      await this.persistMemory(item);
+  async queueMessages(
+    messages: AgentMemoryMessage[],
+    options: {
+      sessionId?: string | null;
+      namespace: string;
+      profile: string;
+      delaySeconds?: number;
+    },
+  ): Promise<WriteResult & { extractAt: number }> {
+    const written = await this.writeMessages(messages, options);
+    await this.ctx.storage.put("namespace", options.namespace);
+    await this.ctx.storage.put("profile", options.profile);
+    const delayMs = Math.max(1, options.delaySeconds ?? 10) * 1000;
+    const extractAt = Date.now() + delayMs;
+    await this.ctx.storage.setAlarm(extractAt);
+    return { ...written, extractAt };
+  }
+
+  async alarm(): Promise<void> {
+    const namespace = await this.ctx.storage.get<string>("namespace");
+    const profile = await this.ctx.storage.get<string>("profile");
+    if (!namespace || !profile) return;
+    await this.env.EXTRACT_QUEUE.send({ namespace, profile });
+  }
+
+  async claimPending(): Promise<PendingBatch[]> {
+    const rows = this.ctx.storage.sql
+      .exec<MessageRow>(
+        "SELECT * FROM messages WHERE extracted = 0 ORDER BY created_at ASC, id ASC",
+      )
+      .toArray();
+
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((row) => row.id);
+    for (const id of ids) {
+      this.ctx.storage.sql.exec(
+        "UPDATE messages SET extracted = 2 WHERE id = ? AND extracted = 0",
+        id,
+      );
     }
 
-    return { ingested: inserted, extracted: extracted.length };
+    const groups = new Map<string, PendingBatch>();
+    for (const row of rows) {
+      const sessionId = row.session_id ?? "unknown";
+      const group = groups.get(sessionId) ?? {
+        sessionId,
+        messages: [],
+        sourceIds: [],
+      };
+      group.messages.push({
+        role: row.role,
+        content: row.content,
+        timestamp: new Date(row.created_at).toISOString(),
+      });
+      group.sourceIds.push(row.id);
+      groups.set(sessionId, group);
+    }
+    return [...groups.values()];
   }
 
-  async remember(
-    content: string,
-    options: { sessionId?: string | null } = {},
-  ): Promise<StoredMemory> {
-    const classified = await classifyMemory(this.env, content, options.sessionId ?? null);
-    return this.persistMemory(classified);
+  async markExtracted(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      this.ctx.storage.sql.exec("UPDATE messages SET extracted = 1 WHERE id = ?", id);
+    }
   }
 
-  async recall(
+  async releasePending(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      this.ctx.storage.sql.exec(
+        "UPDATE messages SET extracted = 0 WHERE id = ? AND extracted = 2",
+        id,
+      );
+    }
+  }
+
+  async storeMemories(items: ExtractedMemory[]): Promise<StoredMemory[]> {
+    const stored: StoredMemory[] = [];
+    for (const item of items) {
+      stored.push(await this.persistMemory(item));
+    }
+    return stored;
+  }
+
+  async search(
     query: string,
-    options: {
-      thinkingLevel?: "low" | "medium" | "high";
-      responseLength?: "short" | "medium" | "long";
-      referenceDate?: string;
-    } = {},
-  ): Promise<RecallResult> {
-    const analysis = await analyzeQuery(this.env, query, options.referenceDate);
-    const hits = this.search(query, analysis, options.thinkingLevel ?? "low");
-    const memoryHits = hits.filter((hit) => hit.kind === "memory");
-    const answer = await synthesizeAnswer(
-      this.env,
-      query,
-      hits,
-      options.responseLength ?? "medium",
-    );
+    analysis: QueryAnalysis,
+    thinkingLevel: "low" | "medium" | "high" = "low",
+  ): Promise<SearchHit[]> {
+    const limit = thinkingLevel === "high" ? 16 : thinkingLevel === "medium" ? 10 : 6;
+    const hits: SearchHit[] = [];
 
-    const candidates: ScoredCandidate[] = memoryHits.slice(0, 8).map((hit) => ({
-      id: hit.id,
-      summary: hit.summary,
-      sessionId: hit.sessionId,
-      score: Number(hit.rank.toFixed(4)),
-    }));
+    for (const [index, key] of analysis.topicKeys.entries()) {
+      const rows = this.ctx.storage.sql
+        .exec<MemoryRow>(
+          "SELECT * FROM memories WHERE topic_key = ? AND superseded_by IS NULL LIMIT 5",
+          key,
+        )
+        .toArray();
+      for (const row of rows) {
+        hits.push(fromMemory(row, "topic", index + 1));
+      }
+    }
 
-    return {
-      count: candidates.length,
-      answer: answer || "",
-      candidates,
-    };
+    const memoryQuery = ftsQuery([query, ...analysis.ftsTerms, analysis.hyde]);
+    if (memoryQuery) {
+      const rows = this.ctx.storage.sql
+        .exec<MemoryRow>(
+          `SELECT m.* FROM memories_fts
+           JOIN memories m ON m.rowid = memories_fts.rowid
+           WHERE memories_fts MATCH ? AND m.superseded_by IS NULL
+           ORDER BY rank
+           LIMIT ?`,
+          memoryQuery,
+          limit,
+        )
+        .toArray();
+      rows.forEach((row, index) => hits.push(fromMemory(row, "memory_fts", index + 1)));
+    }
+
+    const messageQuery = ftsQuery([query, ...analysis.ftsTerms]);
+    if (messageQuery) {
+      const rows = this.ctx.storage.sql
+        .exec<MessageRow>(
+          `SELECT msg.* FROM messages_fts
+           JOIN messages msg ON msg.rowid = messages_fts.rowid
+           WHERE messages_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`,
+          messageQuery,
+          Math.max(4, Math.floor(limit / 2)),
+        )
+        .toArray();
+      rows.forEach((row, index) => {
+        hits.push({
+          id: row.id,
+          kind: "message",
+          type: null,
+          summary: row.content.slice(0, 160),
+          content: row.content,
+          sessionId: row.session_id,
+          createdAt: row.created_at,
+          channel: "message_fts",
+          rank: index + 1,
+        });
+      });
+    }
+
+    return fuse(hits, limit);
   }
 
   async list(options: {
@@ -226,19 +349,18 @@ export class MemoryProfile extends DurableObject<Env> {
     };
   }
 
-  async get(memoryId: string): Promise<StoredMemory> {
+  async get(memoryId: string): Promise<StoredMemory | null> {
     const row = this.ctx.storage.sql
       .exec<MemoryRow>("SELECT * FROM memories WHERE id = ?", memoryId)
       .toArray()[0];
-    if (!row) throw new HttpError(404, "Memory not found");
-    return toStored(row);
+    return row ? toStored(row) : null;
   }
 
-  async deleteMemory(memoryId: string): Promise<StoredMemory> {
+  async deleteMemory(memoryId: string): Promise<StoredMemory | null> {
     const row = this.ctx.storage.sql
       .exec<MemoryRow>("SELECT * FROM memories WHERE id = ?", memoryId)
       .toArray()[0];
-    if (!row) throw new HttpError(404, "Memory not found");
+    if (!row) return null;
 
     this.ctx.storage.sql.exec(
       "DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)",
@@ -391,73 +513,6 @@ export class MemoryProfile extends DurableObject<Env> {
       createdAt: new Date(now).toISOString(),
       updatedAt: new Date(now).toISOString(),
     };
-  }
-
-  private search(
-    query: string,
-    analysis: { topicKeys: string[]; ftsTerms: string[]; hyde: string },
-    thinkingLevel: "low" | "medium" | "high",
-  ): SearchHit[] {
-    const limit = thinkingLevel === "high" ? 16 : thinkingLevel === "medium" ? 10 : 6;
-    const hits: SearchHit[] = [];
-
-    for (const [index, key] of analysis.topicKeys.entries()) {
-      const rows = this.ctx.storage.sql
-        .exec<MemoryRow>(
-          "SELECT * FROM memories WHERE topic_key = ? AND superseded_by IS NULL LIMIT 5",
-          key,
-        )
-        .toArray();
-      for (const row of rows) {
-        hits.push(fromMemory(row, "topic", index + 1));
-      }
-    }
-
-    const memoryQuery = ftsQuery([query, ...analysis.ftsTerms, analysis.hyde]);
-    if (memoryQuery) {
-      const rows = this.ctx.storage.sql
-        .exec<MemoryRow>(
-          `SELECT m.* FROM memories_fts
-           JOIN memories m ON m.rowid = memories_fts.rowid
-           WHERE memories_fts MATCH ? AND m.superseded_by IS NULL
-           ORDER BY rank
-           LIMIT ?`,
-          memoryQuery,
-          limit,
-        )
-        .toArray();
-      rows.forEach((row, index) => hits.push(fromMemory(row, "memory_fts", index + 1)));
-    }
-
-    const messageQuery = ftsQuery([query, ...analysis.ftsTerms]);
-    if (messageQuery) {
-      const rows = this.ctx.storage.sql
-        .exec<MessageRow>(
-          `SELECT msg.* FROM messages_fts
-           JOIN messages msg ON msg.rowid = messages_fts.rowid
-           WHERE messages_fts MATCH ?
-           ORDER BY rank
-           LIMIT ?`,
-          messageQuery,
-          Math.max(4, Math.floor(limit / 2)),
-        )
-        .toArray();
-      rows.forEach((row, index) => {
-        hits.push({
-          id: row.id,
-          kind: "message",
-          type: null,
-          summary: row.content.slice(0, 160),
-          content: row.content,
-          sessionId: row.session_id,
-          createdAt: row.created_at,
-          channel: "message_fts",
-          rank: index + 1,
-        });
-      });
-    }
-
-    return fuse(hits, limit);
   }
 }
 

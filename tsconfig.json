@@ -4,7 +4,10 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "types": ["./worker-configuration.d.ts"],
+    "types": [
+      "./worker-configuration.d.ts",
+      "@cloudflare/vitest-pool-workers"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -12,5 +15,5 @@
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "vitest.config.ts", "worker-configuration.d.ts"]
 }

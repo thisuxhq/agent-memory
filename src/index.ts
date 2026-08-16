@@ -1,7 +1,17 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { MemoryProfile } from "./profile";
-import { profileName } from "./ids";
+import { requireBearer } from "./auth";
+import {
+  ingestNow,
+  processExtractJob,
+  profileStub,
+  queueIngest,
+  recallNow,
+  rememberNow,
+  requireDeleteMemory,
+  requireMemory,
+} from "./service";
 import {
   HttpError,
   parseLimit,
@@ -18,10 +28,6 @@ export { MemoryProfile };
 type AppEnv = { Bindings: Env };
 
 const app = new Hono<AppEnv>();
-
-function stub(env: Env, namespace: string, profile: string) {
-  return env.MEMORY_PROFILE.getByName(profileName(namespace, profile));
-}
 
 async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
   try {
@@ -46,6 +52,11 @@ app.notFound((c) => c.json({ error: "Not found" }, 404));
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+app.use("/namespaces/*", async (c, next) => {
+  requireBearer(c.req.header("Authorization"), c.env.MEMORY_API_TOKEN);
+  await next();
+});
+
 const profiles = new Hono<AppEnv>();
 
 profiles.use("/:namespace/profiles/:profile/*", async (c, next) => {
@@ -61,16 +72,32 @@ profiles.use("/:namespace/profiles/:profile", async (c, next) => {
 });
 
 profiles.delete("/:namespace/profiles/:profile", async (c) => {
-  await stub(c.env, c.req.param("namespace"), c.req.param("profile")).destroy();
+  await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).destroy();
   return c.json({ ok: true });
 });
 
 profiles.post("/:namespace/profiles/:profile/ingest", async (c) => {
   const body = await readJson(c);
-  const result = await stub(c.env, c.req.param("namespace"), c.req.param("profile")).ingest(
+  const result = await ingestNow(
+    c.env,
+    c.req.param("namespace"),
+    c.req.param("profile"),
+    requireMessages(body.messages),
+    requireSessionId(typeof body.sessionId === "string" ? body.sessionId : null),
+  );
+  return c.json(result);
+});
+
+profiles.post("/:namespace/profiles/:profile/queue", async (c) => {
+  const body = await readJson(c);
+  const result = await queueIngest(
+    c.env,
+    c.req.param("namespace"),
+    c.req.param("profile"),
     requireMessages(body.messages),
     {
       sessionId: requireSessionId(typeof body.sessionId === "string" ? body.sessionId : null),
+      delaySeconds: typeof body.delaySeconds === "number" ? body.delaySeconds : 10,
     },
   );
   return c.json(result);
@@ -78,18 +105,22 @@ profiles.post("/:namespace/profiles/:profile/ingest", async (c) => {
 
 profiles.post("/:namespace/profiles/:profile/remember", async (c) => {
   const body = await readJson(c);
-  const stored = await stub(c.env, c.req.param("namespace"), c.req.param("profile")).remember(
+  const stored = await rememberNow(
+    c.env,
+    c.req.param("namespace"),
+    c.req.param("profile"),
     requireContent(body.content),
-    {
-      sessionId: requireSessionId(typeof body.sessionId === "string" ? body.sessionId : null),
-    },
+    requireSessionId(typeof body.sessionId === "string" ? body.sessionId : null),
   );
   return c.json(stored);
 });
 
 profiles.post("/:namespace/profiles/:profile/recall", async (c) => {
   const body = await readJson(c);
-  const result = await stub(c.env, c.req.param("namespace"), c.req.param("profile")).recall(
+  const result = await recallNow(
+    c.env,
+    c.req.param("namespace"),
+    c.req.param("profile"),
     requireQuery(body.query),
     {
       thinkingLevel:
@@ -116,14 +147,14 @@ profiles.post("/:namespace/profiles/:profile/summary", async (c) => {
       throw new HttpError(400, "Invalid JSON body");
     }
   }
-  const result = await stub(c.env, c.req.param("namespace"), c.req.param("profile")).summary({
+  const result = await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).summary({
     sessionId: requireSessionId(typeof body.sessionId === "string" ? body.sessionId : null),
   });
   return c.json(result);
 });
 
 profiles.get("/:namespace/profiles/:profile/memories", async (c) => {
-  const result = await stub(c.env, c.req.param("namespace"), c.req.param("profile")).list({
+  const result = await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).list({
     limit: parseLimit(c.req.query("limit") ?? null),
     cursor: c.req.query("cursor"),
     sessionId: c.req.query("sessionId"),
@@ -134,7 +165,10 @@ profiles.get("/:namespace/profiles/:profile/memories", async (c) => {
 
 profiles.get("/:namespace/profiles/:profile/memories/:memoryId", async (c) => {
   return c.json(
-    await stub(c.env, c.req.param("namespace"), c.req.param("profile")).get(
+    await requireMemory(
+      c.env,
+      c.req.param("namespace"),
+      c.req.param("profile"),
       c.req.param("memoryId"),
     ),
   );
@@ -142,7 +176,10 @@ profiles.get("/:namespace/profiles/:profile/memories/:memoryId", async (c) => {
 
 profiles.delete("/:namespace/profiles/:profile/memories/:memoryId", async (c) => {
   return c.json(
-    await stub(c.env, c.req.param("namespace"), c.req.param("profile")).deleteMemory(
+    await requireDeleteMemory(
+      c.env,
+      c.req.param("namespace"),
+      c.req.param("profile"),
       c.req.param("memoryId"),
     ),
   );
@@ -150,10 +187,17 @@ profiles.delete("/:namespace/profiles/:profile/memories/:memoryId", async (c) =>
 
 profiles.delete("/:namespace/profiles/:profile/sessions/:sessionId", async (c) => {
   const sessionId = requireSessionId(c.req.param("sessionId")) ?? c.req.param("sessionId");
-  await stub(c.env, c.req.param("namespace"), c.req.param("profile")).deleteSession(sessionId);
+  await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).deleteSession(sessionId);
   return c.json({ ok: true });
 });
 
 app.route("/namespaces", profiles);
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async queue(batch, env): Promise<void> {
+    for (const message of batch.messages) {
+      await processExtractJob(env, message.body.namespace, message.body.profile);
+    }
+  },
+} satisfies ExportedHandler<Env, ExtractJob>;

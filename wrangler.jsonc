@@ -24,5 +24,20 @@
       "tag": "v1",
       "new_sqlite_classes": ["MemoryProfile"]
     }
-  ]
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "EXTRACT_QUEUE",
+        "queue": "agent-memory-extract"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "agent-memory-extract",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5
+      }
+    ]
+  }
 }

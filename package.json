@@ -9,14 +9,17 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "hono": "^4.9.8"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.10.11",
     "@types/node": "^26.2.0",
     "typescript": "^5.9.2",
+    "vitest": "~3.2.0",
     "wrangler": "^4.30.0"
   }
 }

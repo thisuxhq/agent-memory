@@ -10,7 +10,8 @@ Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-me
 ## Stack
 
 - HTTP = [Hono](https://hono.dev)
-- Profile = `MemoryProfile` Durable Object (`namespace:profile`)
+- Profile = `MemoryProfile` Durable Object (`namespace:profile`) — SQL only
+- Worker = auth, Luna extract/classify/recall, queue consumer
 - Source of truth = SQLite + FTS5
 - Extract / classify / query analysis / synthesis = `openai/gpt-5.6-luna` via OpenRouter
 - `reasoning.effort` is always `none`
@@ -21,44 +22,74 @@ Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-me
 ```bash
 bun install
 cp .dev.vars.example .dev.vars
-# put OPENROUTER_API_KEY in .dev.vars
+# put OPENROUTER_API_KEY and MEMORY_API_TOKEN in .dev.vars
 bun run types
+bun run test
 bun run dev
 ```
 
 ## API
 
-All routes are scoped:
+All profile routes need:
+
+```
+Authorization: Bearer $MEMORY_API_TOKEN
+```
+
+`/health` is public.
 
 ```
 /namespaces/:namespace/profiles/:profile/...
 ```
 
 ```bash
-# remember one fact
+TOKEN=dev-token
+
+# remember one fact (sync)
 curl -s localhost:8787/namespaces/demo/profiles/alice/remember \
+  -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"content":"I prefer TypeScript and concise answers.","sessionId":"chat-1"}'
 
-# ingest a conversation (idle-batch this in the agent, not every turn)
-curl -s localhost:8787/namespaces/demo/profiles/alice/ingest \
+# queue messages (idle-batch extract in ~10s)
+curl -s localhost:8787/namespaces/demo/profiles/alice/queue \
+  -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"sessionId":"chat-1","messages":[
     {"role":"user","content":"Use pnpm, not npm."},
     {"role":"assistant","content":"Got it — pnpm from now on."}
   ]}'
 
-# wait a few seconds, then recall from a different session
+# or flush now
+curl -s localhost:8787/namespaces/demo/profiles/alice/ingest \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"chat-1","messages":[
+    {"role":"user","content":"Use pnpm, not npm."},
+    {"role":"assistant","content":"Got it — pnpm from now on."}
+  ]}'
+
+# recall
 curl -s localhost:8787/namespaces/demo/profiles/alice/recall \
+  -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"query":"package manager preference","responseLength":"short"}'
 
 # inspect
-curl -s localhost:8787/namespaces/demo/profiles/alice/summary -X POST -d '{}'
-curl -s localhost:8787/namespaces/demo/profiles/alice/memories
+curl -s localhost:8787/namespaces/demo/profiles/alice/summary \
+  -H "authorization: Bearer $TOKEN" -X POST -d '{}'
+curl -s localhost:8787/namespaces/demo/profiles/alice/memories \
+  -H "authorization: Bearer $TOKEN"
 ```
 
-`ingest` is idempotent. Same `sessionId + role + content` does not duplicate.
+`ingest` / `queue` are idempotent. Same `sessionId + role + content` does not duplicate.
+
+| Route | Behavior |
+| --- | --- |
+| `POST .../queue` | Write messages, extract after 10s idle (resets on each call) |
+| `POST .../ingest` | Write + extract now |
+| `POST .../remember` | Classify + store one memory now |
+| `POST .../recall` | Hybrid search + synthesized answer |
 
 ## Cost (1k users, 20 chats)
 
