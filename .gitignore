@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+dist/
+.DS_Store
+*.tsbuildinfo
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
