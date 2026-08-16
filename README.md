@@ -8,6 +8,14 @@ Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable O
 
 Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/).
 
+## Why this exists
+
+[Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/) is still private beta. I needed the same shape now — profiles, extract, recall, isolation — and I needed to own the knobs.
+
+This repo is that system, built only on Cloudflare primitives: Workers, Durable Objects, Queues, Workers AI, Vectorize. No waiting on the waitlist. No bolting memory onto a random external DB. Tune ingest, models, and retrieval yourself.
+
+Want the same API on your own VM instead of Workers? Working on it.
+
 ## One-click deploy
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thisuxhq/agent-memory)
