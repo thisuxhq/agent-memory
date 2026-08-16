@@ -1,6 +1,8 @@
 {
-  "name": "memory",
+  "name": "agent-memory",
+  "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {

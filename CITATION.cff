@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Agent Memory"
+abstract: "Persistent, scoped agent memory on Cloudflare Workers. One SQLite Durable Object per profile, with Luna-powered extract and recall."
+authors:
+  - name: "THISUX Private Limited"
+    website: "https://github.com/thisuxhq"
+license: MIT
+repository-code: "https://github.com/thisuxhq/agent-memory"
+url: "https://github.com/thisuxhq/agent-memory"
+date-released: "2026-08-16"
+version: "0.1.0"

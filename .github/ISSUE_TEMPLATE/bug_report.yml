@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in ingest, recall, or the Worker API is wrong
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - ingest
+        - remember
+        - recall
+        - Durable Object / SQLite
+        - Hono API
+        - Luna / OpenRouter
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: Actual response, status code, or stored memories.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: curl against `/namespaces/:ns/profiles/:profile/...` if you can.
+      render: bash
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      placeholder: v0.1.0 or a83b80d

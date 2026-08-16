@@ -1,8 +1,11 @@
 # Agent Memory
 
-Cloudflare clone of [Agent Memory](https://developers.cloudflare.com/agent-memory/): Hono Worker, one SQLite Durable Object per profile, Luna extract/recall, FTS + topic-key search.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Copyright](https://img.shields.io/badge/©-THISUX%20Private%20Limited-111111.svg)](LICENSE)
 
-Vectorize is not wired yet. Slice 3.
+Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable Object per profile. Conversations become facts, events, instructions, and tasks. Recall returns a grounded answer — or nothing.
+
+Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/). Vectorize is not wired yet.
 
 ## Stack
 
@@ -60,3 +63,17 @@ curl -s localhost:8787/namespaces/demo/profiles/alice/memories
 ## Cost (1k users, 20 chats)
 
 Luna ~$40. Cloudflare floor $5. DOs $0. Embeddings later, cents.
+
+## Docs
+
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Agent notes](AGENTS.md)
+
+## License
+
+Copyright © 2026 [THISUX Private Limited](https://github.com/thisuxhq).
+
+Released under the [MIT License](LICENSE). You may use, modify, and distribute this project for personal and commercial purposes, provided the copyright and permission notice are retained.

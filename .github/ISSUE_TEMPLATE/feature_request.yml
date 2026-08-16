@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a change to memory extract, recall, or the API
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Who needs this, and what fails without it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: API shape, memory types, or recall-channel change.
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layer
+      options:
+        - HTTP API
+        - Extraction / classification
+        - Recall / ranking
+        - Storage / isolation
+        - Vectorize (Slice 3)
+        - Docs
+    validations:
+      required: true
