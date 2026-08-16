@@ -1,2 +1,5 @@
+# OpenRouter API key — https://openrouter.ai/keys
 OPENROUTER_API_KEY=
+
+# Bearer token for all /namespaces/* routes (pick any long random string)
 MEMORY_API_TOKEN=

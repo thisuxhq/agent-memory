@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vectorize index `agent-memory` with Workers AI `bge-m3` embeddings
 - HyDE + direct vector channels fused into recall (with FTS and topic keys)
 - Lightweight groundedness verifier on extract
+- Deploy to Cloudflare one-click button in the README
 
 ### Changed
 

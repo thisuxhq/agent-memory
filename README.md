@@ -2,10 +2,26 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Copyright](https://img.shields.io/badge/©-THISUX%20Private%20Limited-111111.svg)](LICENSE)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thisuxhq/agent-memory)
 
 Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable Object per profile. Conversations become facts, events, instructions, and tasks. Recall returns a grounded answer — or nothing.
 
 Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/).
+
+## One-click deploy
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thisuxhq/agent-memory)
+
+That button clones this repo into your GitHub/GitLab account, provisions Durable Objects, Queues, Workers AI, and Vectorize from `wrangler.jsonc`, then deploys.
+
+You will be asked for two secrets (from [`.dev.vars.example`](.dev.vars.example)):
+
+| Secret | What to paste |
+| --- | --- |
+| `OPENROUTER_API_KEY` | Key from [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `MEMORY_API_TOKEN` | Any long random string (`openssl rand -hex 32`) |
+
+After deploy, call `/health`, then hit `/namespaces/:ns/profiles/:profile/...` with `Authorization: Bearer $MEMORY_API_TOKEN`.
 
 ## Stack
 
@@ -94,13 +110,19 @@ curl -s localhost:8787/namespaces/demo/profiles/alice/memories \
 
 ## Deploy
 
+### One-click
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thisuxhq/agent-memory)
+
+### CLI
+
 ```bash
 bunx wrangler secret put OPENROUTER_API_KEY
 bunx wrangler secret put MEMORY_API_TOKEN
 bun run deploy
 ```
 
-Vectorize index `agent-memory` must exist (already created for this project).
+One-click provision creates the Vectorize index and queue from `wrangler.jsonc`. Manual CLI deploy needs those resources to exist first (or let Wrangler create them when prompted).
 
 ## Cost (1k users, 20 chats)
 

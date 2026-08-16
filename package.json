@@ -12,6 +12,31 @@
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
+  "cloudflare": {
+    "bindings": {
+      "OPENROUTER_API_KEY": {
+        "description": "API key from [OpenRouter](https://openrouter.ai/keys). Used for extract, classify, and recall synthesis (`openai/gpt-5.6-luna`)."
+      },
+      "MEMORY_API_TOKEN": {
+        "description": "Bearer token for all `/namespaces/*` routes. Generate with `openssl rand -hex 32`."
+      },
+      "OPENROUTER_MODEL": {
+        "description": "OpenRouter model id. Default is `openai/gpt-5.6-luna`."
+      },
+      "MEMORY_PROFILE": {
+        "description": "SQLite Durable Object class — one instance per `namespace:profile`."
+      },
+      "EXTRACT_QUEUE": {
+        "description": "Queue for idle-batch memory extraction after `POST .../queue`."
+      },
+      "VECTORIZE": {
+        "description": "Vectorize index for semantic + HyDE recall (`bge-m3`, 1024 dims)."
+      },
+      "AI": {
+        "description": "Workers AI binding for `@cf/baai/bge-m3` embeddings."
+      }
+    }
+  },
   "dependencies": {
     "hono": "^4.9.8"
   },
