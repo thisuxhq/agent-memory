@@ -34,7 +34,7 @@ Do not commit `.dev.vars`. Do not add `package-lock.json`, `yarn.lock`, or `pnpm
 2. Keep isolation: Alice's profile must never see Bob.
 3. `ingest` stays content-addressed and idempotent.
 4. Luna calls must keep `reasoning.effort: "none"`.
-5. Durable Objects must not call OpenRouter. Keep LLM work in the Worker / queue consumer.
+5. Durable Objects must not call OpenRouter, Workers AI, or Vectorize. Keep LLM/embed work in the Worker / queue consumer.
 6. Prefer `POST .../queue` for chat traffic. Use `POST .../ingest` only for an explicit flush.
 7. Run `bun run check` and `bun run test` before opening a PR.
 8. After `wrangler.jsonc` changes, run `bun run types`. Secrets stay in `src/env.d.ts`.

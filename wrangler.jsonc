@@ -11,6 +11,17 @@
   "vars": {
     "OPENROUTER_MODEL": "openai/gpt-5.6-luna"
   },
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "agent-memory",
+      "remote": true
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

@@ -5,14 +5,15 @@
 
 Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable Object per profile. Conversations become facts, events, instructions, and tasks. Recall returns a grounded answer — or nothing.
 
-Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/). Vectorize is not wired yet.
+Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/).
 
 ## Stack
 
 - HTTP = [Hono](https://hono.dev)
 - Profile = `MemoryProfile` Durable Object (`namespace:profile`) — SQL only
-- Worker = auth, Luna extract/classify/recall, queue consumer
+- Worker = auth, Luna extract/classify/recall, embeddings, queue consumer
 - Source of truth = SQLite + FTS5
+- Semantic recall = Workers AI `bge-m3` + Vectorize (`agent-memory`), including HyDE
 - Extract / classify / query analysis / synthesis = `openai/gpt-5.6-luna` via OpenRouter
 - `reasoning.effort` is always `none`
 - Package manager = Bun
@@ -91,9 +92,19 @@ curl -s localhost:8787/namespaces/demo/profiles/alice/memories \
 | `POST .../remember` | Classify + store one memory now |
 | `POST .../recall` | Hybrid search + synthesized answer |
 
+## Deploy
+
+```bash
+bunx wrangler secret put OPENROUTER_API_KEY
+bunx wrangler secret put MEMORY_API_TOKEN
+bun run deploy
+```
+
+Vectorize index `agent-memory` must exist (already created for this project).
+
 ## Cost (1k users, 20 chats)
 
-Luna ~$40. Cloudflare floor $5. DOs $0. Embeddings later, cents.
+Luna ~$40. Cloudflare floor $5. DOs $0. Embeddings + Vectorize ~cents.
 
 ## Docs
 

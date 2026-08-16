@@ -55,6 +55,8 @@ export type PendingBatch = {
 const CHANNEL_WEIGHT: Record<SearchHit["channel"], number> = {
   topic: 1.0,
   memory_fts: 0.7,
+  vector: 0.65,
+  hyde: 0.6,
   message_fts: 0.3,
 };
 
@@ -234,18 +236,50 @@ export class MemoryProfile extends DurableObject<Env> {
     }
   }
 
-  async storeMemories(items: ExtractedMemory[]): Promise<StoredMemory[]> {
+  async storeMemories(
+    items: ExtractedMemory[],
+  ): Promise<{ stored: StoredMemory[]; supersededIds: string[]; sources: ExtractedMemory[] }> {
     const stored: StoredMemory[] = [];
+    const supersededIds: string[] = [];
+    const sources: ExtractedMemory[] = [];
     for (const item of items) {
-      stored.push(await this.persistMemory(item));
+      const result = await this.persistMemory(item);
+      stored.push(result.memory);
+      supersededIds.push(...result.supersededIds);
+      sources.push(item);
     }
-    return stored;
+    return { stored, supersededIds, sources };
+  }
+
+  async getMany(ids: string[]): Promise<StoredMemory[]> {
+    const out: StoredMemory[] = [];
+    for (const id of ids) {
+      const row = this.ctx.storage.sql
+        .exec<MemoryRow>("SELECT * FROM memories WHERE id = ? AND superseded_by IS NULL", id)
+        .toArray()[0];
+      if (row) out.push(toStored(row));
+    }
+    return out;
+  }
+
+  async listMemoryIds(options: { sessionId?: string } = {}): Promise<string[]> {
+    if (options.sessionId) {
+      return this.ctx.storage.sql
+        .exec<{ id: string }>("SELECT id FROM memories WHERE session_id = ?", options.sessionId)
+        .toArray()
+        .map((row) => row.id);
+    }
+    return this.ctx.storage.sql
+      .exec<{ id: string }>("SELECT id FROM memories")
+      .toArray()
+      .map((row) => row.id);
   }
 
   async search(
     query: string,
     analysis: QueryAnalysis,
     thinkingLevel: "low" | "medium" | "high" = "low",
+    vectorHits: Array<{ id: string; score: number; channel: "vector" | "hyde" }> = [],
   ): Promise<SearchHit[]> {
     const limit = thinkingLevel === "high" ? 16 : thinkingLevel === "medium" ? 10 : 6;
     const hits: SearchHit[] = [];
@@ -304,6 +338,31 @@ export class MemoryProfile extends DurableObject<Env> {
           rank: index + 1,
         });
       });
+    }
+
+    if (vectorHits.length > 0) {
+      const ids = [...new Set(vectorHits.map((hit) => hit.id))];
+      const byId = new Map(
+        this.ctx.storage.sql
+          .exec<MemoryRow>(
+            `SELECT * FROM memories WHERE id IN (${ids.map(() => "?").join(",")}) AND superseded_by IS NULL`,
+            ...ids,
+          )
+          .toArray()
+          .map((row) => [row.id, row] as const),
+      );
+
+      const ranked = [...vectorHits].sort((a, b) => b.score - a.score);
+      const seen = new Set<string>();
+      let rank = 1;
+      for (const hit of ranked) {
+        if (seen.has(`${hit.channel}:${hit.id}`)) continue;
+        seen.add(`${hit.channel}:${hit.id}`);
+        const row = byId.get(hit.id);
+        if (!row) continue;
+        hits.push(fromMemory(row, hit.channel, rank));
+        rank += 1;
+      }
     }
 
     return fuse(hits, limit);
@@ -370,7 +429,7 @@ export class MemoryProfile extends DurableObject<Env> {
     return toStored(row);
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
+  async deleteSession(sessionId: string): Promise<string[]> {
     const memories = this.ctx.storage.sql
       .exec<{ id: string }>("SELECT id FROM memories WHERE session_id = ?", sessionId)
       .toArray();
@@ -392,10 +451,16 @@ export class MemoryProfile extends DurableObject<Env> {
       );
     }
     this.ctx.storage.sql.exec("DELETE FROM messages WHERE session_id = ?", sessionId);
+    return memories.map((memory) => memory.id);
   }
 
-  async destroy(): Promise<void> {
+  async destroy(): Promise<string[]> {
+    const ids = this.ctx.storage.sql
+      .exec<{ id: string }>("SELECT id FROM memories")
+      .toArray()
+      .map((row) => row.id);
     await this.ctx.storage.deleteAll();
+    return ids;
   }
 
   async summary(options: { sessionId?: string | null } = {}): Promise<{ summary: string }> {
@@ -447,7 +512,9 @@ export class MemoryProfile extends DurableObject<Env> {
       .toArray();
   }
 
-  private async persistMemory(item: ExtractedMemory): Promise<StoredMemory> {
+  private async persistMemory(
+    item: ExtractedMemory,
+  ): Promise<{ memory: StoredMemory; supersededIds: string[] }> {
     const now = Date.now();
     const id = await sha256Hex(
       `${item.type}\0${item.topicKey ?? ""}\0${item.summary}\0${item.content}\0${item.sessionId ?? ""}`,
@@ -456,8 +523,9 @@ export class MemoryProfile extends DurableObject<Env> {
     const existing = this.ctx.storage.sql
       .exec<MemoryRow>("SELECT * FROM memories WHERE id = ?", id)
       .toArray()[0];
-    if (existing) return toStored(existing);
+    if (existing) return { memory: toStored(existing), supersededIds: [] };
 
+    const supersededIds: string[] = [];
     if (item.topicKey && (item.type === "fact" || item.type === "instruction")) {
       const previous = this.ctx.storage.sql
         .exec<MemoryRow>(
@@ -477,6 +545,7 @@ export class MemoryProfile extends DurableObject<Env> {
           "DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)",
           row.id,
         );
+        supersededIds.push(row.id);
       }
     }
 
@@ -505,13 +574,16 @@ export class MemoryProfile extends DurableObject<Env> {
     );
 
     return {
-      id,
-      type: item.type,
-      summary: item.summary,
-      content: item.content,
-      sessionId: item.sessionId,
-      createdAt: new Date(now).toISOString(),
-      updatedAt: new Date(now).toISOString(),
+      memory: {
+        id,
+        type: item.type,
+        summary: item.summary,
+        content: item.content,
+        sessionId: item.sessionId,
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      },
+      supersededIds,
     };
   }
 }

@@ -57,7 +57,7 @@ export type SearchHit = {
   content: string;
   sessionId: string | null;
   createdAt: number;
-  channel: "topic" | "memory_fts" | "message_fts";
+  channel: "topic" | "memory_fts" | "message_fts" | "vector" | "hyde";
   rank: number;
 };
 

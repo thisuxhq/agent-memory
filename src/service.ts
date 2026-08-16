@@ -1,8 +1,16 @@
+import {
+  buildEmbedPayload,
+  deleteMemoryVectors,
+  queryMemoryVectors,
+  upsertMemoryVectors,
+} from "./embeddings";
 import { analyzeQuery, classifyMemory, extractMemories, synthesizeAnswer } from "./luna";
 import { profileName } from "./ids";
+import { verifyExtracted } from "./verify";
 import { HttpError } from "./validate";
 import type {
   AgentMemoryMessage,
+  ExtractedMemory,
   MemoryType,
   RecallResult,
   ScoredCandidate,
@@ -11,6 +19,25 @@ import type {
 
 export function profileStub(env: Env, namespace: string, profile: string) {
   return env.MEMORY_PROFILE.getByName(profileName(namespace, profile));
+}
+
+async function persistAndIndex(
+  env: Env,
+  namespace: string,
+  profile: string,
+  items: ExtractedMemory[],
+): Promise<StoredMemory[]> {
+  if (items.length === 0) return [];
+  const memory = profileStub(env, namespace, profile);
+  const { stored, supersededIds, sources } = await memory.storeMemories(items);
+  await deleteMemoryVectors(env, supersededIds);
+  await upsertMemoryVectors(
+    env,
+    namespace,
+    profile,
+    stored.map((row, index) => buildEmbedPayload(row, sources[index])),
+  );
+  return stored;
 }
 
 export async function ingestNow(
@@ -24,13 +51,11 @@ export async function ingestNow(
   const written = await memory.writeMessages(messages, { sessionId });
   if (written.ingested === 0) return { ingested: 0, extracted: 0 };
 
-  const extracted = await extractMemories(
-    env,
+  const extracted = verifyExtracted(
+    await extractMemories(env, written.pending, written.sessionId, written.sourceIds),
     written.pending,
-    written.sessionId,
-    written.sourceIds,
   );
-  await memory.storeMemories(extracted);
+  await persistAndIndex(env, namespace, profile, extracted);
   await memory.markExtracted(written.sourceIds);
   return { ingested: written.ingested, extracted: extracted.length };
 }
@@ -64,8 +89,11 @@ export async function processExtractJob(
   let extracted = 0;
   try {
     for (const batch of batches) {
-      const items = await extractMemories(env, batch.messages, batch.sessionId, batch.sourceIds);
-      await memory.storeMemories(items);
+      const items = verifyExtracted(
+        await extractMemories(env, batch.messages, batch.sessionId, batch.sourceIds),
+        batch.messages,
+      );
+      await persistAndIndex(env, namespace, profile, items);
       await memory.markExtracted(batch.sourceIds);
       extracted += items.length;
     }
@@ -85,7 +113,7 @@ export async function rememberNow(
   sessionId?: string | null,
 ): Promise<StoredMemory> {
   const classified = await classifyMemory(env, content, sessionId ?? null);
-  const [stored] = await profileStub(env, namespace, profile).storeMemories([classified]);
+  const [stored] = await persistAndIndex(env, namespace, profile, [classified]);
   if (!stored) throw new HttpError(500, "Failed to store memory");
   return stored;
 }
@@ -101,11 +129,23 @@ export async function recallNow(
     referenceDate?: string;
   } = {},
 ): Promise<RecallResult> {
+  const thinkingLevel = options.thinkingLevel ?? "low";
+  const topK = thinkingLevel === "high" ? 12 : thinkingLevel === "medium" ? 8 : 5;
   const analysis = await analyzeQuery(env, query, options.referenceDate);
+
+  const vectorHits = await queryMemoryVectors(
+    env,
+    namespace,
+    profile,
+    [query, analysis.hyde].filter(Boolean),
+    topK,
+  );
+
   const hits = await profileStub(env, namespace, profile).search(
     query,
     analysis,
-    options.thinkingLevel ?? "low",
+    thinkingLevel,
+    vectorHits,
   );
   const answer = await synthesizeAnswer(
     env,
@@ -145,7 +185,27 @@ export async function requireDeleteMemory(
 ): Promise<StoredMemory> {
   const stored = await profileStub(env, namespace, profile).deleteMemory(memoryId);
   if (!stored) throw new HttpError(404, "Memory not found");
+  await deleteMemoryVectors(env, [memoryId]);
   return stored;
+}
+
+export async function deleteSessionNow(
+  env: Env,
+  namespace: string,
+  profile: string,
+  sessionId: string,
+): Promise<void> {
+  const ids = await profileStub(env, namespace, profile).deleteSession(sessionId);
+  await deleteMemoryVectors(env, ids);
+}
+
+export async function destroyProfileNow(
+  env: Env,
+  namespace: string,
+  profile: string,
+): Promise<void> {
+  const ids = await profileStub(env, namespace, profile).destroy();
+  await deleteMemoryVectors(env, ids);
 }
 
 export type ListOptions = {

@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `POST .../queue` idle-batch path: write messages, extract after 10s alarm + queue
 - Worker-side Luna orchestration so Durable Objects stay SQL-only
 - Vitest pool-workers coverage for auth, isolation, supersession, and idempotent writes
+- Vectorize index `agent-memory` with Workers AI `bge-m3` embeddings
+- HyDE + direct vector channels fused into recall (with FTS and topic keys)
+- Lightweight groundedness verifier on extract
 
 ### Changed
 
 - `POST .../ingest` remains the immediate flush path; chat traffic should use `/queue`
+- Deletes remove Vectorize rows for superseded and deleted memories
 
 ## [0.1.0] - 2026-08-16
 

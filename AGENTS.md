@@ -23,16 +23,17 @@ Lockfile is `bun.lock`. Do not create `package-lock.json` or `yarn.lock`.
 
 ```
 Hono Worker  ──auth──►  Luna (OpenRouter)
-     │                      │
+     │           ├──► Workers AI bge-m3 embeddings
+     │           └──► Vectorize (namespace = profile)
      ├──RPC──► MemoryProfile DO (SQLite + FTS5 only)
-     │
-     └──queue──► extract consumer (Luna, then storeMemories)
+     └──queue──► extract consumer (Luna → verify → SQL → vectors)
 ```
 
 - Isolation: `namespace:profile` → one Durable Object. Alice never sees Bob.
-- Source of truth: SQLite. Vectorize is not wired (Slice 3).
-- DO does not call OpenRouter. Worker + queue consumer do.
+- Source of truth: SQLite. Vectors are a recall channel, not source of truth.
+- DO does not call OpenRouter or Vectorize. Worker + queue consumer do.
 - LLM: `openai/gpt-5.6-luna`, `reasoning.effort: "none"`. Always.
+- Embeddings: `@cf/baai/bge-m3` into Vectorize index `agent-memory`.
 - Prefer `POST .../queue` for chat traffic. Use `POST .../ingest` only for an explicit flush.
 
 ## Auth
@@ -77,6 +78,8 @@ Messages are content-addressed. Same session + role + content does not duplicate
 | `src/service.ts` | Orchestration (Luna + DO) |
 | `src/profile.ts` | Durable Object: SQL only |
 | `src/luna.ts` | OpenRouter client |
+| `src/embeddings.ts` | bge-m3 + Vectorize upsert/query |
+| `src/verify.ts` | Lightweight extract verifier |
 | `src/auth.ts` | Bearer token check |
 | `src/ids.ts` | Content hashes, topic keys |
 | `src/validate.ts` | Request limits |
@@ -89,4 +92,4 @@ Messages are content-addressed. Same session + role + content does not duplicate
 - Ingest every agent turn (use `/queue`)
 - Share one DO across profiles
 - Hand-write binding `Env` — run `bunx wrangler types`. Secrets stay in `src/env.d.ts`
-- Add Vectorize until Slice 3
+- Put OpenRouter or API tokens in git

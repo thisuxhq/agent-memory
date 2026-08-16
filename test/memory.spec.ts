@@ -68,12 +68,14 @@ describe("MemoryProfile storage", () => {
   it("supersedes older facts on the same topic key", async () => {
     const memory = profileStub(env, "demo", "package-user");
 
-    await memory.storeMemories([
+    const first = await memory.storeMemories([
       fact("package-manager", "Uses npm", "The user prefers npm."),
     ]);
-    await memory.storeMemories([
+    const second = await memory.storeMemories([
       fact("package-manager", "Uses pnpm", "The user prefers pnpm."),
     ]);
+    expect(first.stored).toHaveLength(1);
+    expect(second.supersededIds).toContain(first.stored[0]?.id);
 
     const listed = await memory.list({ type: "fact" });
     expect(listed.memories).toHaveLength(1);

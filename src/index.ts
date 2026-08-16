@@ -3,6 +3,8 @@ import { HTTPException } from "hono/http-exception";
 import { MemoryProfile } from "./profile";
 import { requireBearer } from "./auth";
 import {
+  deleteSessionNow,
+  destroyProfileNow,
   ingestNow,
   processExtractJob,
   profileStub,
@@ -72,7 +74,7 @@ profiles.use("/:namespace/profiles/:profile", async (c, next) => {
 });
 
 profiles.delete("/:namespace/profiles/:profile", async (c) => {
-  await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).destroy();
+  await destroyProfileNow(c.env, c.req.param("namespace"), c.req.param("profile"));
   return c.json({ ok: true });
 });
 
@@ -187,7 +189,7 @@ profiles.delete("/:namespace/profiles/:profile/memories/:memoryId", async (c) =>
 
 profiles.delete("/:namespace/profiles/:profile/sessions/:sessionId", async (c) => {
   const sessionId = requireSessionId(c.req.param("sessionId")) ?? c.req.param("sessionId");
-  await profileStub(c.env, c.req.param("namespace"), c.req.param("profile")).deleteSession(sessionId);
+  await deleteSessionNow(c.env, c.req.param("namespace"), c.req.param("profile"), sessionId);
   return c.json({ ok: true });
 });
 
