@@ -4,7 +4,7 @@
 [![Copyright](https://img.shields.io/badge/©-THISUX%20Private%20Limited-111111.svg)](LICENSE)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thisuxhq/agent-memory)
 
-Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable Object per profile. Conversations become facts, events, instructions, and tasks. Recall returns a grounded answer — or nothing.
+Persistent, scoped memory for agents on Cloudflare Workers. One SQLite Durable Object per profile. Conversations become facts, events, instructions, and tasks. Recall returns a grounded answer, or nothing.
 
 Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/).
 
@@ -34,7 +34,7 @@ After deploy, call `/health`, then hit `/namespaces/:ns/profiles/:profile/...` w
 ## Stack
 
 - HTTP = [Hono](https://hono.dev)
-- Profile = `MemoryProfile` Durable Object (`namespace:profile`) — SQL only
+- Profile = `MemoryProfile` Durable Object (`namespace:profile`), SQL only
 - Worker = auth, Luna extract/classify/recall, embeddings, queue consumer
 - Source of truth = SQLite + FTS5
 - Semantic recall = Workers AI `bge-m3` + Vectorize (`agent-memory`), including HyDE
@@ -82,7 +82,7 @@ curl -s localhost:8787/namespaces/demo/profiles/alice/queue \
   -H 'content-type: application/json' \
   -d '{"sessionId":"chat-1","messages":[
     {"role":"user","content":"Use pnpm, not npm."},
-    {"role":"assistant","content":"Got it — pnpm from now on."}
+    {"role":"assistant","content":"Got it. pnpm from now on."}
   ]}'
 
 # or flush now
@@ -91,7 +91,7 @@ curl -s localhost:8787/namespaces/demo/profiles/alice/ingest \
   -H 'content-type: application/json' \
   -d '{"sessionId":"chat-1","messages":[
     {"role":"user","content":"Use pnpm, not npm."},
-    {"role":"assistant","content":"Got it — pnpm from now on."}
+    {"role":"assistant","content":"Got it. pnpm from now on."}
   ]}'
 
 # recall
