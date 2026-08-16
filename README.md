@@ -10,11 +10,11 @@ Inspired by [Cloudflare Agent Memory](https://developers.cloudflare.com/agent-me
 
 ## Why this exists
 
-[Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/) is still private beta. I needed the same shape now — profiles, extract, recall, isolation — and I needed to own the knobs.
+[Cloudflare Agent Memory](https://developers.cloudflare.com/agent-memory/) is still in private beta. I needed profiles, extract, recall, and isolation now, and I wanted to tweak it without leaving Cloudflare.
 
-This repo is that system, built only on Cloudflare primitives: Workers, Durable Objects, Queues, Workers AI, Vectorize. No waiting on the waitlist. No bolting memory onto a random external DB. Tune ingest, models, and retrieval yourself.
+So I built it on Workers, Durable Objects, Queues, Workers AI, and Vectorize. Same idea. Your knobs. No waitlist. No extra database outside the ecosystem.
 
-Want the same API on your own VM instead of Workers? Working on it.
+Need this on your own VM instead? I'm already working on that.
 
 ## One-click deploy
 
